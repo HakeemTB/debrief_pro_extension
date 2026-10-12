@@ -1,0 +1,7 @@
+src/**
+out/test/**
+.vscode/**
+.gitignore
+node_modules/**
+*.ts
+*.map
