@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 import { GitEvent, HistoryEvent, Project, SessionEvent, SessionState, Task, WorkSession } from '../domain/models';
@@ -9,6 +10,7 @@ export interface StorageData {
   sessions: WorkSession[];
   gitEvents: GitEvent[];
   historyEvents: HistoryEvent[];
+  activeProjectId?: string;
 }
 
 export interface DebriefSummary {
@@ -19,6 +21,33 @@ export interface DebriefSummary {
   gitEventCount: number;
   latestBranchName?: string;
   summary: string;
+}
+
+export function resolveStorageDirectory(
+  extensionStoragePath?: string,
+  environment: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+  homeDirectory: string = os.homedir(),
+): string {
+  const override = environment.DEBRIEFPRO_DATA_DIR?.trim();
+  if (override) {
+    return path.resolve(override);
+  }
+
+  if (extensionStoragePath) {
+    return path.resolve(extensionStoragePath);
+  }
+
+  let userDataDirectory: string;
+  if (platform === 'win32') {
+    userDataDirectory = path.join(environment.APPDATA || path.join(homeDirectory, 'AppData', 'Roaming'), 'Code');
+  } else if (platform === 'darwin') {
+    userDataDirectory = path.join(homeDirectory, 'Library', 'Application Support', 'Code');
+  } else {
+    userDataDirectory = path.join(environment.XDG_CONFIG_HOME || path.join(homeDirectory, '.config'), 'Code');
+  }
+
+  return path.join(userDataDirectory, 'User', 'globalStorage', 'debriefpro.debriefpro');
 }
 
 export class LocalStorage {
@@ -51,6 +80,7 @@ export class LocalStorage {
         sessions: Array.isArray(parsed.sessions) ? (parsed.sessions as WorkSession[]) : [],
         gitEvents: Array.isArray(parsed.gitEvents) ? (parsed.gitEvents as GitEvent[]) : [],
         historyEvents: Array.isArray(parsed.historyEvents) ? (parsed.historyEvents as HistoryEvent[]) : [],
+        activeProjectId: typeof parsed.activeProjectId === 'string' ? parsed.activeProjectId : undefined,
       };
     } catch {
       return { projects: [], tasks: [], sessions: [], gitEvents: [], historyEvents: [] };
@@ -59,11 +89,41 @@ export class LocalStorage {
 
   writeData(data: StorageData): void {
     this.ensureReady();
-    fs.writeFileSync(this.filePath, JSON.stringify(data, null, 2), 'utf8');
+    const temporaryPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      fs.writeFileSync(temporaryPath, JSON.stringify(data, null, 2), { encoding: 'utf8', flag: 'wx' });
+      fs.renameSync(temporaryPath, this.filePath);
+    } finally {
+      if (fs.existsSync(temporaryPath)) {
+        fs.unlinkSync(temporaryPath);
+      }
+    }
   }
 
   getProjects(): Project[] {
     return this.readData().projects;
+  }
+
+  getActiveProject(): Project | undefined {
+    const data = this.readData();
+    return data.projects.find((project) => project.id === data.activeProjectId);
+  }
+
+  setActiveProject(projectId: string): Project | undefined {
+    const data = this.readData();
+    const project = data.projects.find((item) => item.id === projectId);
+    if (!project) {
+      return undefined;
+    }
+
+    data.activeProjectId = project.id;
+    this.appendHistoryEvent(data, {
+      source: 'app',
+      title: `Project selected: ${project.name}`,
+      projectId: project.id,
+    });
+    this.writeData(data);
+    return project;
   }
 
   getTasks(): Task[] {
@@ -162,6 +222,9 @@ export class LocalStorage {
     };
 
     data.projects.push(nextProject);
+    if (!data.activeProjectId) {
+      data.activeProjectId = nextProject.id;
+    }
     this.appendHistoryEvent(data, {
       source: 'app',
       title: `Project created: ${nextProject.name}`,

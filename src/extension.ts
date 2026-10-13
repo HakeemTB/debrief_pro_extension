@@ -4,7 +4,7 @@ import { createProjectCommand, createTaskCommand, updateTaskStatusCommand } from
 import { generateDebriefMarkdown } from './debrief/debriefReport';
 import { DebriefProvider } from './providers/debriefProvider';
 import { GitTracker } from './git/gitService';
-import { LocalStorage } from './storage/storage';
+import { LocalStorage, resolveStorageDirectory } from './storage/storage';
 
 function formatDuration(milliseconds: number): string {
   const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -15,7 +15,7 @@ function formatDuration(milliseconds: number): string {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const storage = new LocalStorage(context.globalStorageUri.fsPath);
+  const storage = new LocalStorage(resolveStorageDirectory(context.globalStorageUri.fsPath));
   storage.ensureReady();
 
   const provider = new DebriefProvider(storage);

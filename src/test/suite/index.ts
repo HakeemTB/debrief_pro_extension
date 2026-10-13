@@ -11,7 +11,7 @@ export function run(): Promise<void> {
   const testsRoot = path.resolve(__dirname, '.');
 
   return new Promise((resolve, reject) => {
-    const files = ['extension.test.js'];
+    const files = ['extension.test.js', 'cli.test.js'];
 
     for (const file of files) {
       mocha.addFile(path.join(testsRoot, file));
