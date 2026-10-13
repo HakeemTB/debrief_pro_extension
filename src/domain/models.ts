@@ -57,4 +57,18 @@ export interface GitEvent {
   changedFilesCount?: number;
   eventType: GitEventType;
   timestamp: string;
+  changedFiles?: string[];
+}
+
+export interface HistoryEvent {
+  id: string;
+  source: 'app' | 'git';
+  title: string;
+  details: string;
+  timestamp: string;
+  projectId?: string;
+  sessionId?: string;
+  repositoryPath?: string;
+  commitId?: string;
+  changedFiles?: string[];
 }

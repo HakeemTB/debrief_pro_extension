@@ -23,6 +23,7 @@ export class DebriefProvider implements vscode.TreeDataProvider<vscode.TreeItem>
         this.createSection('Tasks', 'Next actions and blocked work', vscode.TreeItemCollapsibleState.Collapsed),
         this.createSection('Session', 'Current session', vscode.TreeItemCollapsibleState.Collapsed),
         this.createSection('Debrief', 'Latest summary', vscode.TreeItemCollapsibleState.None),
+        this.createSection('History', 'Recent app and source changes', vscode.TreeItemCollapsibleState.Collapsed),
       ];
     }
 
@@ -79,6 +80,39 @@ export class DebriefProvider implements vscode.TreeDataProvider<vscode.TreeItem>
         this.createLeaf('Focus time', `${debrief.totalSessionMinutes} minutes`),
         this.createLeaf('Git activity', `${debrief.gitEventCount} updates`),
       ];
+    }
+
+    if (element.label === 'History') {
+      const history = this.storage.getHistoryEvents().slice(0, 50);
+      return history.length === 0
+        ? [this.createLeaf('No history yet', 'Project, task, session, and Git changes will appear here.')]
+        : history.map((event) => {
+            const item = new vscode.TreeItem(event.title, vscode.TreeItemCollapsibleState.Collapsed);
+            item.id = event.id;
+            item.description = `${event.source} · ${new Date(event.timestamp).toLocaleString()}`;
+            item.tooltip = event.details;
+            item.contextValue = 'historyEvent';
+            return item;
+          });
+    }
+
+    if (element.contextValue === 'historyEvent') {
+      const event = this.storage.getHistoryEvents().find((item) => item.id === element.id);
+      if (!event) {
+        return [];
+      }
+
+      const details = [this.createLeaf('Details', event.details || 'No additional details')];
+      if (event.commitId) {
+        details.push(this.createLeaf('Commit', event.commitId));
+      }
+      if (event.repositoryPath) {
+        details.push(this.createLeaf('Repository', event.repositoryPath));
+      }
+      for (const changedFile of event.changedFiles ?? []) {
+        details.push(this.createLeaf('File', changedFile));
+      }
+      return details;
     }
 
     if (element.contextValue === 'project') {

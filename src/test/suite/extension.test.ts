@@ -46,6 +46,10 @@ suite('DebriefPro extension tests', () => {
     assert.strictEqual(storedTasks.length, 1);
     assert.strictEqual(storedTasks[0].title, 'Create onboarding flow');
 
+    storage.updateTask(task.id, { status: 'in-progress' });
+    const taskHistory = storage.getHistoryEvents(project.id).find((event) => event.title === 'Task updated: Create onboarding flow');
+    assert.ok(taskHistory?.details.includes('status: todo -> in-progress'));
+
     const session = storage.createSession(project.id, task.id);
     storage.addSessionEvent(session.id, 'paused');
     const storedSession = storage.getSessions().find((item) => item.id === session.id);
@@ -206,6 +210,7 @@ suite('DebriefPro extension tests', () => {
       tasks: storage.getTasks(),
       sessions: [session],
       gitEvents: storage.getGitEvents(),
+      historyEvents: storage.getHistoryEvents(),
     });
 
     const elapsed = storage.getElapsedMilliseconds(session);
@@ -247,6 +252,7 @@ suite('DebriefPro extension tests', () => {
       tasks: storage.getTasks(),
       sessions: [session],
       gitEvents: storage.getGitEvents(),
+      historyEvents: storage.getHistoryEvents(),
     });
 
     const elapsed = storage.getElapsedMilliseconds(session);

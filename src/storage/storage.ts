@@ -1,13 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { GitEvent, Project, SessionEvent, SessionState, Task, WorkSession } from '../domain/models';
+import { GitEvent, HistoryEvent, Project, SessionEvent, SessionState, Task, WorkSession } from '../domain/models';
 
 export interface StorageData {
   projects: Project[];
   tasks: Task[];
   sessions: WorkSession[];
   gitEvents: GitEvent[];
+  historyEvents: HistoryEvent[];
 }
 
 export interface DebriefSummary {
@@ -32,7 +33,7 @@ export class LocalStorage {
     fs.mkdirSync(directory, { recursive: true });
 
     if (!fs.existsSync(this.filePath)) {
-      const initial: StorageData = { projects: [], tasks: [], sessions: [], gitEvents: [] };
+      const initial: StorageData = { projects: [], tasks: [], sessions: [], gitEvents: [], historyEvents: [] };
       fs.writeFileSync(this.filePath, JSON.stringify(initial, null, 2), 'utf8');
     }
   }
@@ -49,9 +50,10 @@ export class LocalStorage {
         tasks: Array.isArray(parsed.tasks) ? (parsed.tasks as Task[]) : [],
         sessions: Array.isArray(parsed.sessions) ? (parsed.sessions as WorkSession[]) : [],
         gitEvents: Array.isArray(parsed.gitEvents) ? (parsed.gitEvents as GitEvent[]) : [],
+        historyEvents: Array.isArray(parsed.historyEvents) ? (parsed.historyEvents as HistoryEvent[]) : [],
       };
     } catch {
-      return { projects: [], tasks: [], sessions: [], gitEvents: [] };
+      return { projects: [], tasks: [], sessions: [], gitEvents: [], historyEvents: [] };
     }
   }
 
@@ -74,6 +76,20 @@ export class LocalStorage {
 
   getGitEvents(): GitEvent[] {
     return this.readData().gitEvents;
+  }
+
+  getHistoryEvents(projectId?: string): HistoryEvent[] {
+    const events = this.readData().historyEvents;
+    return events
+      .filter((event) => !projectId || event.projectId === projectId)
+      .sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime());
+  }
+
+  createHistoryEvent(input: Partial<HistoryEvent> & Pick<HistoryEvent, 'source' | 'title'>): HistoryEvent {
+    const data = this.readData();
+    const event = this.appendHistoryEvent(data, input);
+    this.writeData(data);
+    return event;
   }
 
   getActiveSession(): WorkSession | undefined {
@@ -115,7 +131,18 @@ export class LocalStorage {
       return undefined;
     }
 
+    const changes = Object.entries(updates)
+      .filter(([field, value]) => field !== 'updatedAt' && task[field as keyof Task] !== value)
+      .map(([field, value]) => `${field}: ${String(task[field as keyof Task] ?? '')} -> ${String(value ?? '')}`);
     Object.assign(task, updates, { updatedAt: updates.updatedAt ?? new Date().toISOString() });
+    if (changes.length > 0) {
+      this.appendHistoryEvent(data, {
+        source: 'app',
+        title: `Task updated: ${task.title}`,
+        details: changes.join('; '),
+        projectId: task.projectId,
+      });
+    }
     this.writeData(data);
     return task;
   }
@@ -135,6 +162,12 @@ export class LocalStorage {
     };
 
     data.projects.push(nextProject);
+    this.appendHistoryEvent(data, {
+      source: 'app',
+      title: `Project created: ${nextProject.name}`,
+      details: nextProject.description || 'No description recorded',
+      projectId: nextProject.id,
+    });
     this.writeData(data);
     return nextProject;
   }
@@ -155,6 +188,12 @@ export class LocalStorage {
     };
 
     data.tasks.push(nextTask);
+    this.appendHistoryEvent(data, {
+      source: 'app',
+      title: `Task created: ${nextTask.title}`,
+      details: `Status: ${nextTask.status}; priority: ${nextTask.priority}`,
+      projectId,
+    });
     this.writeData(data);
     return nextTask;
   }
@@ -175,6 +214,13 @@ export class LocalStorage {
     };
 
     data.sessions.push(session);
+    this.appendHistoryEvent(data, {
+      source: 'app',
+      title: 'Session started',
+      details: `Project: ${data.projects.find((project) => project.id === projectId)?.name ?? projectId}${taskId ? `; task: ${data.tasks.find((task) => task.id === taskId)?.title ?? taskId}` : ''}`,
+      projectId,
+      sessionId,
+    });
     this.writeData(data);
     return session;
   }
@@ -225,6 +271,14 @@ export class LocalStorage {
     }
 
     session.updatedAt = now;
+    this.appendHistoryEvent(data, {
+      source: 'app',
+      title: `Session ${type}`,
+      details: `Project: ${data.projects.find((project) => project.id === session.projectId)?.name ?? session.projectId}`,
+      projectId: session.projectId,
+      sessionId: session.id,
+      timestamp: now,
+    });
     this.writeData(data);
     return session;
   }
@@ -281,6 +335,23 @@ export class LocalStorage {
     data.gitEvents.push(newEvent);
     this.writeData(data);
     return newEvent;
+  }
+
+  private appendHistoryEvent(data: StorageData, input: Partial<HistoryEvent> & Pick<HistoryEvent, 'source' | 'title'>): HistoryEvent {
+    const event: HistoryEvent = {
+      id: input.id ?? `history-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      source: input.source,
+      title: input.title,
+      details: input.details ?? '',
+      timestamp: input.timestamp ?? new Date().toISOString(),
+      projectId: input.projectId,
+      sessionId: input.sessionId,
+      repositoryPath: input.repositoryPath,
+      commitId: input.commitId,
+      changedFiles: input.changedFiles,
+    };
+    data.historyEvents.push(event);
+    return event;
   }
 
   getGitEventsByProject(projectId: string): GitEvent[] {
